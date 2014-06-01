@@ -6,7 +6,7 @@ object Dependencies {
   object V {
     val scalaTest = "2.1.5"
     val spray = "1.3.1"
-    val akka = "2.3.2"
+    val akka = "2.3.3"
   }
 
   object C {
