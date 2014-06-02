@@ -4,9 +4,8 @@ import spray.routing._
 import spray.can.server.ServerSettings
 import akka.actor._
 import spray.http.StatusCodes._
-import spray.http.HttpRequest
-import spray.http.HttpResponse
 import org.caoilte.spray.routing.SingleAccessLogger.AccessLogRequest
+import spray.http._
 
 trait AccessLogger {
   def logAccess(request:HttpRequest, response:HttpResponse, time:Long):Unit
@@ -75,9 +74,7 @@ trait LogAccessRouting extends HttpServiceActor {
 
   override def timeoutRoute: Route = {
     accessLogTimeout {
-      complete(
-        InternalServerError,
-        "The server was not able to produce a timely response to your request.")
+      complete(InternalServerError, "The server was not able to produce a timely response to your request.")
     }
   }
 
