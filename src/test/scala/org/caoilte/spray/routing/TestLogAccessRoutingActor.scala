@@ -5,12 +5,13 @@ import akka.actor.{Props, ActorRef, Actor}
 import scala.concurrent._
 import akka.pattern.ask
 import akka.util.Timeout
+import java.util.concurrent.TimeUnit
 
 class TestLogAccessRoutingActor(val accessLogger: AccessLogger, val thinkingMillis: Long, response:String, path:String) extends HttpServiceActor with LogAccessRouting {
   case object RequestForDelayedResponse
 
 
-  implicit val TIMEOUT: Timeout = Timeout(thinkingMillis*2)
+  implicit val TIMEOUT: Timeout = Timeout(thinkingMillis*2, TimeUnit.MILLISECONDS)
 
   class DelayedResponseActor extends Actor {
     def receive: Receive = {
