@@ -6,6 +6,8 @@ import akka.actor._
 import spray.http.StatusCodes._
 import org.caoilte.spray.routing.SingleAccessLogger.AccessLogRequest
 import spray.http._
+import scala.concurrent.duration.Duration
+import spray.util.LoggingContext
 
 trait AccessLogger {
   def logAccess(request:HttpRequest, response:HttpResponse, time:Long):Unit
@@ -41,17 +43,10 @@ class SingleAccessLogger(accessLogger: AccessLogger) extends Actor {
   }
 }
 
-trait LogAccessRouting extends HttpServiceActor {
+trait LogAccessRouting extends HttpServiceBase {
+  var singleAccessLoggerRef:ActorRef
+  val requestTimeout:Duration
 
-  val accessLogger:AccessLogger
-  private val requestTimeout = ServerSettings(context.system).requestTimeout
-
-  var singleAccessLoggerRef:ActorRef = _
-
-  override def preStart() {
-    singleAccessLoggerRef = context.system.actorOf(Props(new SingleAccessLogger(accessLogger)), "single-access-logger")
-    super.preStart
-  }
 
   def accessLogTimeout: Directive0 = {
     mapRequestContext { ctx =>
@@ -59,6 +54,13 @@ trait LogAccessRouting extends HttpServiceActor {
         singleAccessLoggerRef ! AccessLogRequest(ctx.request, response, requestTimeout.toMillis)
         response
       }
+    }
+  }
+
+
+  override def timeoutRoute: Route = {
+    accessLogTimeout {
+      complete(InternalServerError, "The server was not able to produce a timely response to your request.")
     }
   }
 
@@ -72,10 +74,33 @@ trait LogAccessRouting extends HttpServiceActor {
       }
     }
 
-  override def timeoutRoute: Route = {
-    accessLogTimeout {
-      complete(InternalServerError, "The server was not able to produce a timely response to your request.")
+  override def runRoute(route: Route)(implicit eh: ExceptionHandler, rh: RejectionHandler, ac: ActorContext,
+                                      rs: RoutingSettings, log: LoggingContext): Actor.Receive = {
+
+    val accessLogRoute:Route = accessLog {
+      route
     }
+
+    {
+      case Timedout(request: HttpRequest) ⇒ super.runRoute(timeoutRoute)(eh, rh, ac, rs, log)(request)
+      case other => super.runRoute(accessLogRoute)(eh, rh, ac, rs, log)(other)
+    }
+
   }
+}
+
+trait LogAccessRoutingActor extends HttpServiceActor with LogAccessRouting {
+
+  val accessLogger:AccessLogger
+  val requestTimeout:Duration = ServerSettings(context.system).requestTimeout
+
+  var singleAccessLoggerRef:ActorRef = _
+
+  override def preStart() {
+    singleAccessLoggerRef = context.system.actorOf(Props(new SingleAccessLogger(accessLogger)), "single-access-logger")
+    super.preStart
+  }
+
+
 
 }

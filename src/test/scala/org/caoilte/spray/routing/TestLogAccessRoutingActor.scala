@@ -7,7 +7,8 @@ import akka.pattern.ask
 import akka.util.Timeout
 import java.util.concurrent.TimeUnit
 
-class TestLogAccessRoutingActor(val accessLogger: AccessLogger, val thinkingMillis: Long, response:String, path:String) extends HttpServiceActor with LogAccessRouting {
+class TestLogAccessRoutingActor(val accessLogger: AccessLogger, val thinkingMillis: Long, response:String, path:String)
+  extends HttpServiceActor with LogAccessRoutingActor {
   case object RequestForDelayedResponse
 
 
@@ -34,11 +35,9 @@ class TestLogAccessRoutingActor(val accessLogger: AccessLogger, val thinkingMill
   }
 
   val routes:Route = {
-    accessLog {
-      path(path) {
-        get {
-          complete((testAc ? RequestForDelayedResponse).mapTo[String])
-        }
+    path(path) {
+      get {
+        complete((testAc ? RequestForDelayedResponse).mapTo[String])
       }
     }
   }

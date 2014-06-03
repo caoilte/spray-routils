@@ -52,10 +52,6 @@ class YourAccessLogger extends AccessLogger {
 
 class YourHttpService extends HttpServiceActor with LogAccessRouting {
   val accessLogger:AccessLogger = new YourAccessLogger
-    
-  val routes:Route = accessLog {
-    ???
-  }
 }
 ```
 
