@@ -17,6 +17,8 @@ import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.time.{Seconds, Span}
 import spray.http.HttpRequest
 import spray.http.HttpResponse
+import spray.httpx.UnsuccessfulResponseException
+import scala.util.Failure
 
 class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
@@ -25,11 +27,11 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   it should "Log Access Once with the Correct Request, Response and Access Times" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
-      responseDelayMillis = 500) { testKit =>
+      responseOrExceptionIfNone = Some(Response(500))) { testKit =>
       import testKit._
 
       whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
-        assert(s === RESPONSE)
+        assert(s.entity.asString(HttpCharsets.`UTF-8`) === Response.DEFAULT_RESPONSE)
       }
 
       expectMsgPF(3 seconds, "Expected normal log event with response delayed properties") {
@@ -42,16 +44,39 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     }
   }
 
+  behavior of "An HTTP Server with a route that throws an Exception within the request timeout"
+
+  it should "Log Access Once with the Correct Request, Response and Access Times" in {
+    aTestLogAccessRoutingActor(
+      requestTimeoutMillis = 4000,
+      responseOrExceptionIfNone = None) { testKit =>
+      import testKit._
+
+
+      whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
+        assert(s.status.intValue == 500)
+      }
+
+      expectMsgPF(3 seconds, "Expected normal log event with error response properties") {
+        case LogEvent(
+        HttpRequest(HttpMethods.GET,URI, _, _, _),
+        HttpResponse(StatusCodes.InternalServerError, _, _, _), time, false
+        ) if time <= 4000 => true
+      }
+      expectNoMsg(3 seconds)
+    }
+  }
+
   behavior of "An HTTP Server that handles a request with a 200 response outside of the request timeout"
 
   it should "Log Access Once with the Correct Request, Standard Timeout Error Response and Request Timeout time" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 50,
-      responseDelayMillis = 500) { testKit =>
+      responseOrExceptionIfNone = Some(Response(500))) { testKit =>
       import testKit._
 
-      intercept[Exception] {
-        makeHttpCall.isReadyWithin(1 second)
+      whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
+        assert(s.status.intValue == 500)
       }
 
       expectMsgPF(3 seconds, "Expected normal log event with with timeout properties") {
@@ -71,11 +96,12 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   }
 
 
-  implicit val TIMEOUT: Timeout = 1.second
+
+
+  implicit val TIMEOUT: Timeout = 3.second
   val PORT = 8084
   val HOST = s"http://localhost:$PORT"
   val PATH = "test"
-  val RESPONSE = "response"
   val URI:Uri = Uri(s"$HOST/$PATH")
   case class LogEvent(request: HttpRequest, response: HttpResponse, time: Long, alreadyLogged: Boolean)
 
@@ -108,7 +134,11 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
       |
     """.stripMargin
 
-  def aTestLogAccessRoutingActor(requestTimeoutMillis:Long, responseDelayMillis:Long)(callback: TestKit => Unit) {
+  def aTestLogAccessRoutingActor(
+                                  requestTimeoutMillis:Long,
+                                  responseOrExceptionIfNone:Option[Response]
+                                  )
+                                (callback: TestKit => Unit) {
     val config = ConfigFactory.parseString(CONFIG(s"$requestTimeoutMillis ms"))
     implicit val system = ActorSystem("test-system", config)
     val testKit = new TestKit(system)
@@ -116,7 +146,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     try {
       val accessLogger = new TestAccessLogger(testKit.testActor)
       val serviceActor = system.actorOf(Props(
-        new TestLogAccessRoutingActor(accessLogger, responseDelayMillis, RESPONSE, PATH))
+        new TestLogAccessRoutingActor(accessLogger, responseOrExceptionIfNone, PATH))
       )
 
       val sprayServerStartResult = IO(Http).ask(Http.Bind(serviceActor, "localhost", PORT)).flatMap {
@@ -126,19 +156,17 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
             "Binding failed. Switch on DEBUG-level logging for `akka.io.TcpListener` to log the cause."))
       }(system.dispatcher)
 
-      assert(sprayServerStartResult.isReadyWithin(1 second))
+      assert(sprayServerStartResult.isReadyWithin(3 second))
       callback(testKit)
     } finally {
       system.shutdown()
     }
   }
 
-
-
-  def makeHttpCall(implicit system: ActorSystem):Future[String] = {
+  def makeHttpCall(implicit system: ActorSystem):Future[HttpResponse] = {
     import system.dispatcher
-    val pipeline: HttpRequest => Future[String] =
-      sendReceive ~> unmarshal[String]
+    val pipeline: HttpRequest => Future[HttpResponse] =
+      sendReceive
 
     pipeline(Get(Uri(s"$HOST/$PATH")))
   }

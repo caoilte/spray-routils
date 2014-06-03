@@ -37,22 +37,33 @@ class DemoAccessLogger extends AccessLogger {
 }
 
 object LogAccessRoutingDemo extends App {
-  def demoArgs():(Long, Long) = {
+  def demoArgs():Option[(Long, Long)] = {
     try {
-      (args(0).toLong, args(1).toLong)
+      Some((args(0).toLong, args(1).toLong))
     } catch {
       case e:Exception => {
-        println("""Failed to parse demo args.
-          |Best usage is 'reStart requestTimeoutInMillis responseDelayInMillis' in sbt.
-          |Example Timeout Demo     : 'reStart 500 1000'
-          |Example Success Response : 'reStart 1000 500'""".stripMargin)
-        System.exit(1)
-        throw e
+        if (args.length == 1 && args(0).toString().equals("fail")) {
+          None
+        } else {
+          println(
+            """Failed to parse demo args.
+            |Possibilities are 'reStart requestTimeoutInMillis responseDelayInMillis', eg
+            |  Example Timeout Demo : 'reStart 500 1000'
+            |  Example Success Demo : 'reStart 1000 500'
+            |Or 'reStart fail' which is an,
+            |  Example Error Demo
+            |""".stripMargin)
+          System.exit(1)
+          throw e
+        }
       }
     }
   }
 
-  val (requestTimeoutInMillis, responseDelayInMillis) = demoArgs()
+  val demoArgsOrExceptionIfNone = demoArgs()
+  val (
+    requestTimeoutInMillis, responseDelayInMillis) = demoArgsOrExceptionIfNone.getOrElse(1000L, 1000L)
+  val responseOrExceptionIfNone = demoArgsOrExceptionIfNone.map(_ => Response(responseDelayInMillis, "hello"))
   val config = ConfigFactory.parseString(
     s"""
       |spray.can {
@@ -64,12 +75,12 @@ object LogAccessRoutingDemo extends App {
       |}
     """.stripMargin)
 
-  implicit val TIMEOUT: Timeout = 1.second
+  implicit val TIMEOUT: Timeout = 3.second
   implicit val system = ActorSystem("log-access-routing-demo", config)
 
 
   val serviceActor = system.actorOf(Props(
-    new TestLogAccessRoutingActor(new DemoAccessLogger, responseDelayInMillis, "Hello World!", "hello"))
+    new TestLogAccessRoutingActor(new DemoAccessLogger, responseOrExceptionIfNone, "hello"))
   )
 
 

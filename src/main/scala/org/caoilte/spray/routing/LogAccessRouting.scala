@@ -4,10 +4,13 @@ import spray.routing._
 import spray.can.server.ServerSettings
 import akka.actor._
 import spray.http.StatusCodes._
-import org.caoilte.spray.routing.SingleAccessLogger.AccessLogRequest
-import spray.http._
 import scala.concurrent.duration.Duration
 import spray.util.LoggingContext
+import spray.http.HttpRequest
+import org.caoilte.spray.routing.SingleAccessLogger.AccessLogRequest
+import spray.http.HttpResponse
+import spray.http.Timedout
+import scala.util.control.NonFatal
 
 trait AccessLogger {
   def logAccess(request:HttpRequest, response:HttpResponse, time:Long):Unit
@@ -64,20 +67,32 @@ trait LogAccessRouting extends HttpServiceBase {
     }
   }
 
-  def accessLog: Directive0 =
-    mapRequestContext { ctx =>
+  def accessLog()(implicit eh: ExceptionHandler,rs: RoutingSettings,log: LoggingContext): Directive0 = {
+    val sealedExceptionHandler = eh orElse ExceptionHandler.default
+
+    mapInnerRoute { route => ctx =>
       singleAccessLoggerRef ! ctx.request
       val timeStamp = System.currentTimeMillis
-      ctx.withHttpResponseMapped { response =>
+
+      val ctxWithResponseLogged = ctx.withHttpResponseMapped { response =>
         singleAccessLoggerRef ! AccessLogRequest(ctx.request, response, System.currentTimeMillis - timeStamp)
         response
       }
+      try {
+        route(ctxWithResponseLogged)
+      } catch {
+        case NonFatal(e) => {
+          sealedExceptionHandler(e)(ctxWithResponseLogged)
+        }
+      }
     }
+  }
 
   override def runRoute(route: Route)(implicit eh: ExceptionHandler, rh: RejectionHandler, ac: ActorContext,
                                       rs: RoutingSettings, log: LoggingContext): Actor.Receive = {
 
-    val accessLogRoute:Route = accessLog {
+
+    val accessLogRoute:Route = accessLog()(eh,rs,log) {
       route
     }
 

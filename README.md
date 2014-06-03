@@ -7,6 +7,7 @@ In order to accurately log all access to a Spray Server you need to,
 + Handle Timedout requests ([see Spray Docs][spray-timeout-handling]) and then log them
 + Ensure Routes that timeout don't also log on completion (ie log access twice - 
 [see this Google Groups Discussion for background][spray-timeout-discussion])
++ Ensure Routes that throw exceptions have their access logged consistently with routes that do not
 
 The ```LogAccessRouting``` Spray Routing trait uses custom directives to manage a ```Map[HttpRequest,Count]``` 
 and ensure that HttpRequests are only logged once - either by your routes, or by the timeout route.
@@ -18,7 +19,7 @@ tests of the same behaviour.)
 ### Demo a Server that responds within the timeout
 
 ```reStart 1000 500``` will start a server with a ```request-timeout``` of 1000ms and a sleep before responding of 
-500ms. Going to ```http://localhost:8085/hello``` will log,
+500ms. Going to ```http://localhost:8085/hello``` will print,
 
 ```
 spray-routils "GET /hello HTTP/1.1" 200 12 580
@@ -28,12 +29,23 @@ spray-routils "GET /hello HTTP/1.1" 200 12 580
 ### Demo a Server that times out before responding
 
 ```reStart 500 1000``` will start a server with a ```request-timeout``` of 500ms and a sleep before responding of 
-1000ms. Going to ```http://localhost:8085/hello``` will log,
+1000ms. Going to ```http://localhost:8085/hello``` will print,
 
 ```
 spray-routils "GET /hello HTTP/1.1" 500 69 500
 spray-routils THIS WOULD HAVE BEEN RESPONSE IF TIMEOUT HADN'T OCCURRED
 spray-routils "GET /hello HTTP/1.1" 200 12 1048"
+```
+
+
+### Demo a Server with a route that always throws an exception
+
+```reStart fail``` and going to ```http://localhost:8085/hello``` will print,
+
+```
+spray-routils java.lang.Exception: Test Exception
+spray-routils [...]
+spray-routils "GET /hello HTTP/1.1" 500 35 125"
 ```
 
 ### Including Access Logging in your own Spray Routes

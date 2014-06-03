@@ -7,20 +7,26 @@ import akka.pattern.ask
 import akka.util.Timeout
 import java.util.concurrent.TimeUnit
 
-class TestLogAccessRoutingActor(val accessLogger: AccessLogger, val thinkingMillis: Long, response:String, path:String)
+case object Response {
+  val DEFAULT_RESPONSE = "response"
+}
+
+case class Response(thinkingMillis: Long, responseMessage:String = Response.DEFAULT_RESPONSE)
+
+class TestLogAccessRoutingActor(val accessLogger: AccessLogger,
+                                responseOrExceptionIfNone:Option[Response], path:String)
   extends HttpServiceActor with LogAccessRoutingActor {
   case object RequestForDelayedResponse
 
 
-  implicit val TIMEOUT: Timeout = Timeout(thinkingMillis*2, TimeUnit.MILLISECONDS)
-
-  class DelayedResponseActor extends Actor {
+  class DelayedResponseActor(response:Response) extends Actor {
+    import response._
     def receive: Receive = {
       case RequestForDelayedResponse => {
         blocking {
           Thread.sleep(thinkingMillis)
         }
-        sender ! response
+        sender ! responseMessage
       }
     }
   }
@@ -30,14 +36,24 @@ class TestLogAccessRoutingActor(val accessLogger: AccessLogger, val thinkingMill
   implicit def executionContext = actorRefFactory.dispatcher
 
   override def preStart {
-    testAc = context.actorOf(Props(new DelayedResponseActor()), "delayed-response-test-actor")
+    responseOrExceptionIfNone.foreach( response => {
+      testAc = context.actorOf(Props(new DelayedResponseActor(response)), "delayed-response-test-actor")
+    })
     super.preStart
   }
 
   val routes:Route = {
     path(path) {
       get {
-        complete((testAc ? RequestForDelayedResponse).mapTo[String])
+        parameterMap { params => // stops exception being thrown during actor creation
+          responseOrExceptionIfNone match {
+            case None => throw new Exception("Test Exception")
+            case Some(Response(thinkingMillis, _)) => {
+              implicit val TIMEOUT: Timeout = Timeout(thinkingMillis*2, TimeUnit.MILLISECONDS)
+              complete((testAc ? RequestForDelayedResponse).mapTo[String])
+            }
+          }
+        }
       }
     }
   }
