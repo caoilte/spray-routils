@@ -9,6 +9,7 @@ import spray.http.{HttpResponse, HttpRequest}
 import com.typesafe.config.ConfigFactory
 import akka.util.Timeout
 import scala.concurrent.duration._
+import spray.routing.Route
 
 
 class DemoAccessLogger extends AccessLogger {
@@ -37,21 +38,26 @@ class DemoAccessLogger extends AccessLogger {
 }
 
 object LogAccessRoutingDemo extends App {
-  def demoArgs():Option[(Long, Long)] = {
+
+
+  def demoArgs():Either[Route,(Long, Long)] = {
     try {
-      Some((args(0).toLong, args(1).toLong))
+      Right((args(0).toLong, args(1).toLong))
     } catch {
       case e:Exception => {
-        if (args.length == 1 && args(0).toString().equals("fail")) {
-          None
+        if (args.length == 1 && args(0).toString().equals("exception")) {
+          Left(FailureRoutes.exceptionRoute)
+        } else if (args.length == 1 && args(0).toString().equals("fail")) {
+          Left(FailureRoutes.failureRoute)
         } else {
           println(
             """Failed to parse demo args.
-            |Possibilities are 'reStart requestTimeoutInMillis responseDelayInMillis', eg
-            |  Example Timeout Demo : 'reStart 500 1000'
-            |  Example Success Demo : 'reStart 1000 500'
-            |Or 'reStart fail' which is an,
-            |  Example Error Demo
+            |Possibilities are 'reStart <request-timeout-in-millis> <response-delay-in-millis>', eg
+            |  Example Timeout Demo                : 'reStart 500 1000'
+            |  Example Success Demo                : 'reStart 1000 500'
+            |Or 'reStart <failure-type>' eg,
+            |  Example Exception Throwing Demo     : 'reStart exception'
+            |  Example Fails with Exception Demo   : 'reStart fail'
             |""".stripMargin)
           System.exit(1)
           throw e
@@ -60,10 +66,10 @@ object LogAccessRoutingDemo extends App {
     }
   }
 
-  val demoArgsOrExceptionIfNone = demoArgs()
+  val exceptionRouteOrDemoArgs = demoArgs()
   val (
-    requestTimeoutInMillis, responseDelayInMillis) = demoArgsOrExceptionIfNone.getOrElse(1000L, 1000L)
-  val responseOrExceptionIfNone = demoArgsOrExceptionIfNone.map(_ => Response(responseDelayInMillis, "hello"))
+    requestTimeoutInMillis, responseDelayInMillis) = exceptionRouteOrDemoArgs.right.getOrElse(1000L, 1000L)
+  val exceptionRouteOrDelayedResponse:Either[Route,DelayedResponse] = exceptionRouteOrDemoArgs.right.map(_ => DelayedResponse(responseDelayInMillis, "hello"))
   val config = ConfigFactory.parseString(
     s"""
       |spray.can {
@@ -80,7 +86,7 @@ object LogAccessRoutingDemo extends App {
 
 
   val serviceActor = system.actorOf(Props(
-    new TestLogAccessRoutingActor(new DemoAccessLogger, responseOrExceptionIfNone, "hello"))
+    new TestLogAccessRoutingActor(new DemoAccessLogger, exceptionRouteOrDelayedResponse, "hello"))
   )
 
 

@@ -40,11 +40,21 @@ spray-routils "GET /hello HTTP/1.1" 200 12 1048"
 
 ### Demo a Server with a route that always throws an exception
 
-```reStart fail``` and going to ```http://localhost:8085/hello``` will print,
+```reStart exception``` and going to ```http://localhost:8085/hello``` will print,
 
 ```
 spray-routils java.lang.Exception: Test Exception
 spray-routils [...]
+spray-routils "GET /hello HTTP/1.1" 500 35 125"
+```
+
+### Demo a Server with a route that always fails with an Exception
+
+```reStart fail``` and going to ```http://localhost:8085/hello``` will print,
+
+```
+spray-routils 	There was an internal server error.: Test Exception
+spray-routils 	Completing with '500 Internal Server Error' response
 spray-routils "GET /hello HTTP/1.1" 500 35 125"
 ```
 

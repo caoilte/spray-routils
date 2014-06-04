@@ -3,8 +3,8 @@ package org.caoilte.spray.routing
 import org.scalatest.FlatSpec
 import akka.testkit.TestKit
 import com.typesafe.config.ConfigFactory
-import akka.actor.{ActorRef, Actor, Props, ActorSystem}
-import spray.routing.{Route, HttpServiceActor}
+import akka.actor.{ActorRef, Props, ActorSystem}
+import spray.routing.{Directives, Route}
 import spray.http._
 import spray.can.Http
 import scala.concurrent._
@@ -17,8 +17,18 @@ import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.time.{Seconds, Span}
 import spray.http.HttpRequest
 import spray.http.HttpResponse
-import spray.httpx.UnsuccessfulResponseException
-import scala.util.Failure
+
+object FailureRoutes extends Directives {
+
+  val exceptionRoute = {
+    parameterMap { params => // stops exception being thrown during actor creation
+      throw new Exception("Test Exception")
+    }
+  }
+  val failureRoute = {
+    failWith(new RequestProcessingException(StatusCodes.InternalServerError,"Test Exception"))
+  }
+}
 
 class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
@@ -27,11 +37,11 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   it should "Log Access Once with the Correct Request, Response and Access Times" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
-      responseOrExceptionIfNone = Some(Response(500))) { testKit =>
+      routeOrDelayedResponse = Right(DelayedResponse(500))) { testKit =>
       import testKit._
 
       whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
-        assert(s.entity.asString(HttpCharsets.`UTF-8`) === Response.DEFAULT_RESPONSE)
+        assert(s.entity.asString(HttpCharsets.`UTF-8`) === DelayedResponse.DEFAULT_RESPONSE)
       }
 
       expectMsgPF(3 seconds, "Expected normal log event with response delayed properties") {
@@ -46,10 +56,34 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
   behavior of "An HTTP Server with a route that throws an Exception within the request timeout"
 
+
   it should "Log Access Once with the Correct Request, Response and Access Times" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
-      responseOrExceptionIfNone = None) { testKit =>
+      routeOrDelayedResponse = Left(FailureRoutes.exceptionRoute)) { testKit =>
+      import testKit._
+
+
+      whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
+        assert(s.status.intValue == 500)
+      }
+
+      expectMsgPF(3 seconds, "Expected normal log event with error response properties") {
+        case LogEvent(
+        HttpRequest(HttpMethods.GET,URI, _, _, _),
+        HttpResponse(StatusCodes.InternalServerError, _, _, _), time, false
+        ) if time <= 4000 => true
+      }
+      expectNoMsg(3 seconds)
+    }
+  }
+
+  behavior of "An HTTP Server with a route that throws completes with a failure within the request timeout"
+
+  it should "Log Access Once with the Correct Request, Response and Access Times" in {
+    aTestLogAccessRoutingActor(
+      requestTimeoutMillis = 4000,
+      routeOrDelayedResponse = Left(FailureRoutes.failureRoute)) { testKit =>
       import testKit._
 
 
@@ -72,7 +106,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   it should "Log Access Once with the Correct Request, Standard Timeout Error Response and Request Timeout time" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 50,
-      responseOrExceptionIfNone = Some(Response(500))) { testKit =>
+      routeOrDelayedResponse = Right(DelayedResponse(500))) { testKit =>
       import testKit._
 
       whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
@@ -94,7 +128,6 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
       }
     }
   }
-
 
 
 
@@ -136,7 +169,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
   def aTestLogAccessRoutingActor(
                                   requestTimeoutMillis:Long,
-                                  responseOrExceptionIfNone:Option[Response]
+                                  routeOrDelayedResponse:Either[Route,DelayedResponse]
                                   )
                                 (callback: TestKit => Unit) {
     val config = ConfigFactory.parseString(CONFIG(s"$requestTimeoutMillis ms"))
@@ -146,7 +179,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     try {
       val accessLogger = new TestAccessLogger(testKit.testActor)
       val serviceActor = system.actorOf(Props(
-        new TestLogAccessRoutingActor(accessLogger, responseOrExceptionIfNone, PATH))
+        new TestLogAccessRoutingActor(accessLogger, routeOrDelayedResponse, PATH))
       )
 
       val sprayServerStartResult = IO(Http).ask(Http.Bind(serviceActor, "localhost", PORT)).flatMap {

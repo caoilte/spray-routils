@@ -7,19 +7,19 @@ import akka.pattern.ask
 import akka.util.Timeout
 import java.util.concurrent.TimeUnit
 
-case object Response {
+case object DelayedResponse {
   val DEFAULT_RESPONSE = "response"
 }
 
-case class Response(thinkingMillis: Long, responseMessage:String = Response.DEFAULT_RESPONSE)
+case class DelayedResponse(thinkingMillis: Long, responseMessage:String = DelayedResponse.DEFAULT_RESPONSE)
 
 class TestLogAccessRoutingActor(val accessLogger: AccessLogger,
-                                responseOrExceptionIfNone:Option[Response], path:String)
+                                routeOrDelayedResponse:Either[Route,DelayedResponse], path:String)
   extends HttpServiceActor with LogAccessRoutingActor {
   case object RequestForDelayedResponse
 
 
-  class DelayedResponseActor(response:Response) extends Actor {
+  class DelayedResponseActor(response:DelayedResponse) extends Actor {
     import response._
     def receive: Receive = {
       case RequestForDelayedResponse => {
@@ -36,7 +36,7 @@ class TestLogAccessRoutingActor(val accessLogger: AccessLogger,
   implicit def executionContext = actorRefFactory.dispatcher
 
   override def preStart {
-    responseOrExceptionIfNone.foreach( response => {
+    routeOrDelayedResponse.right.map( response => {
       testAc = context.actorOf(Props(new DelayedResponseActor(response)), "delayed-response-test-actor")
     })
     super.preStart
@@ -45,13 +45,11 @@ class TestLogAccessRoutingActor(val accessLogger: AccessLogger,
   val routes:Route = {
     path(path) {
       get {
-        parameterMap { params => // stops exception being thrown during actor creation
-          responseOrExceptionIfNone match {
-            case None => throw new Exception("Test Exception")
-            case Some(Response(thinkingMillis, _)) => {
-              implicit val TIMEOUT: Timeout = Timeout(thinkingMillis*2, TimeUnit.MILLISECONDS)
-              complete((testAc ? RequestForDelayedResponse).mapTo[String])
-            }
+        routeOrDelayedResponse match {
+          case Left(route) => route
+          case Right(DelayedResponse(thinkingMillis, _)) => {
+            implicit val TIMEOUT: Timeout = Timeout(thinkingMillis*2, TimeUnit.MILLISECONDS)
+            complete((testAc ? RequestForDelayedResponse).mapTo[String])
           }
         }
       }

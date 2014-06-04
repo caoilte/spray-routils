@@ -10,7 +10,6 @@ import spray.http.HttpRequest
 import org.caoilte.spray.routing.SingleAccessLogger.AccessLogRequest
 import spray.http.HttpResponse
 import spray.http.Timedout
-import scala.util.control.NonFatal
 
 trait AccessLogger {
   def logAccess(request:HttpRequest, response:HttpResponse, time:Long):Unit
@@ -68,8 +67,6 @@ trait LogAccessRouting extends HttpServiceBase {
   }
 
   def accessLog()(implicit eh: ExceptionHandler,rs: RoutingSettings,log: LoggingContext): Directive0 = {
-    val sealedExceptionHandler = eh orElse ExceptionHandler.default
-
     mapInnerRoute { route => ctx =>
       singleAccessLoggerRef ! ctx.request
       val timeStamp = System.currentTimeMillis
@@ -78,13 +75,7 @@ trait LogAccessRouting extends HttpServiceBase {
         singleAccessLoggerRef ! AccessLogRequest(ctx.request, response, System.currentTimeMillis - timeStamp)
         response
       }
-      try {
-        route(ctxWithResponseLogged)
-      } catch {
-        case NonFatal(e) => {
-          sealedExceptionHandler(e)(ctxWithResponseLogged)
-        }
-      }
+      route(ctxWithResponseLogged)
     }
   }
 
@@ -93,7 +84,9 @@ trait LogAccessRouting extends HttpServiceBase {
 
 
     val accessLogRoute:Route = accessLog()(eh,rs,log) {
-      route
+      handleExceptions(eh) {
+        route
+      }
     }
 
     {
