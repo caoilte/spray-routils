@@ -63,7 +63,7 @@ spray-routils "GET /hello HTTP/1.1" 500 35 125"
 Below is an example snippet showing how you might mix the trait into your own project
 
 ```scala
-import org.caoilte.spray.routing.LogAccessRouting
+import org.caoilte.spray.routing.LogAccessRoutingActor
 import org.caoilte.spray.routing.AccessLogger
 
 class YourAccessLogger extends AccessLogger {
@@ -72,7 +72,7 @@ class YourAccessLogger extends AccessLogger {
   override def accessAlreadyLogged(request: HttpRequest, response: HttpResponse, time: Long) = ???
 }
 
-class YourHttpService extends HttpServiceActor with LogAccessRouting {
+class YourHttpService extends LogAccessRoutingActor with Actor {
   val accessLogger:AccessLogger = new YourAccessLogger
 }
 ```
