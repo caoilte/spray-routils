@@ -44,10 +44,10 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
         assert(s.entity.asString(HttpCharsets.`UTF-8`) === DelayedResponse.DEFAULT_RESPONSE)
       }
 
-      expectMsgPF(3 seconds, "Expected normal log event with response delayed properties") {
+      expectMsgPF(3 seconds, "Expected normal log access event with response delayed properties") {
         case LogEvent(
         HttpRequest(HttpMethods.GET,URI, _, _, _),
-        HttpResponse(StatusCodes.OK, _, _, _), time, false
+        HttpResponse(StatusCodes.OK, _, _, _), time, LogAccess
         ) if time >= 500 && time <= 4000 => true
       }
       expectNoMsg(3 seconds)
@@ -68,17 +68,17 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
         assert(s.status.intValue == 500)
       }
 
-      expectMsgPF(3 seconds, "Expected normal log event with error response properties") {
+      expectMsgPF(3 seconds, "Expected normal log access event with error response properties") {
         case LogEvent(
         HttpRequest(HttpMethods.GET,URI, _, _, _),
-        HttpResponse(StatusCodes.InternalServerError, _, _, _), time, false
+        HttpResponse(StatusCodes.InternalServerError, _, _, _), time, LogAccess
         ) if time <= 4000 => true
       }
       expectNoMsg(3 seconds)
     }
   }
 
-  behavior of "An HTTP Server with a route that throws completes with a failure within the request timeout"
+  behavior of "An HTTP Server with a route that completes with a failure within the request timeout"
 
   it should "Log Access Once with the Correct Request, Response and Access Times" in {
     aTestLogAccessRoutingActor(
@@ -91,10 +91,10 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
         assert(s.status.intValue == 500)
       }
 
-      expectMsgPF(3 seconds, "Expected normal log event with error response properties") {
+      expectMsgPF(3 seconds, "Expected normal log access event with error response properties") {
         case LogEvent(
         HttpRequest(HttpMethods.GET,URI, _, _, _),
-        HttpResponse(StatusCodes.InternalServerError, _, _, _), time, false
+        HttpResponse(StatusCodes.InternalServerError, _, _, _), time, LogAccess
         ) if time <= 4000 => true
       }
       expectNoMsg(3 seconds)
@@ -103,7 +103,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
   behavior of "An HTTP Server that handles a request with a 200 response outside of the request timeout"
 
-  it should "Log Access Once with the Correct Request, Standard Timeout Error Response and Request Timeout time" in {
+  it should "Log Access Once with the Correct Request, then log Standard Timeout Error Response and Request Timeout time" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 50,
       routeOrDelayedResponse = Right(DelayedResponse(500))) { testKit =>
@@ -113,17 +113,17 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
         assert(s.status.intValue == 500)
       }
 
-      expectMsgPF(3 seconds, "Expected normal log event with with timeout properties") {
+      expectMsgPF(3 seconds, "Expected normal log access access event with with timeout properties") {
         case LogEvent(
         HttpRequest(HttpMethods.GET,URI, _, _, _),
-        HttpResponse(StatusCodes.InternalServerError, _, _, _), 50, false
+        HttpResponse(StatusCodes.InternalServerError, _, _, _), 50, LogAccess
         ) => true
       }
 
-      expectMsgPF(3 seconds, "Expected already logged event with response delayed properties") {
+      expectMsgPF(3 seconds, "Expected access already logged event with response delayed properties") {
         case LogEvent(
         HttpRequest(HttpMethods.GET,URI, _, _, _),
-        HttpResponse(StatusCodes.OK, _, _, _), time, true
+        HttpResponse(StatusCodes.OK, _, _, _), time, AccessAlreadyLogged
         ) if time >= 500 => true
       }
     }
@@ -136,15 +136,21 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   val HOST = s"http://localhost:$PORT"
   val PATH = "test"
   val URI:Uri = Uri(s"$HOST/$PATH")
-  case class LogEvent(request: HttpRequest, response: HttpResponse, time: Long, alreadyLogged: Boolean)
+
+  sealed trait LogType
+  object LogAccess extends LogType
+  object AccessAlreadyLogged extends LogType
+
+
+  case class LogEvent(request: HttpRequest, response: HttpResponse, time: Long, logAccessType: LogType)
 
   class TestAccessLogger(listener:ActorRef) extends AccessLogger {
     override def logAccess(request: HttpRequest, response: HttpResponse, time: Long) = {
-      listener ! LogEvent(request, response, time, false)
+      listener ! LogEvent(request, response, time, LogAccess)
     }
 
     override def accessAlreadyLogged(request: HttpRequest, response: HttpResponse, time: Long) = {
-      listener ! LogEvent(request, response, time, true)
+      listener ! LogEvent(request, response, time, AccessAlreadyLogged)
     }
   }
 
