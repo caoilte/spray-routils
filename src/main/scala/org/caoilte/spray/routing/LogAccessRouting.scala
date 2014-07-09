@@ -3,11 +3,12 @@ package org.caoilte.spray.routing
 import spray.routing._
 import spray.can.server.ServerSettings
 import akka.actor._
-import scala.concurrent.duration.{FiniteDuration, Duration}
+import scala.concurrent.duration._
 import spray.util.LoggingContext
 import spray.http._
 import org.caoilte.spray.routing.SingleAccessLogger.AccessLogRequest
 import RequestAccessLogger._
+
 
 trait AccessLogger {
   def logAccess(request:HttpRequest, response:HttpResponse, time:Long):Unit
@@ -65,10 +66,14 @@ class RequestAccessLogger(ctx: RequestContext, singleAccessLogger:ActorRef,
 
 object SingleAccessLogger {
   case class AccessLogRequest(request:HttpRequest, response:HttpResponse, time:Long)
+  case object LogState
 }
 
-class SingleAccessLogger(accessLogger: AccessLogger) extends Actor {
+class SingleAccessLogger(accessLogger: AccessLogger) extends Actor with ActorLogging {
   import SingleAccessLogger._
+  import context.dispatcher
+
+  val cancellable:Cancellable = context.system.scheduler.schedule(10 minutes, 10 minutes, self, LogState)
 
   def receive = handleAccessLogRequest(Map().withDefaultValue(0))
 
@@ -89,6 +94,7 @@ class SingleAccessLogger(accessLogger: AccessLogger) extends Actor {
         }
       }
     }
+    case LogState => log.info(s"There are currently ${inProgressRequests.size} requests being tracked for access logging")
   }
 }
 
