@@ -4,6 +4,7 @@ import org.scalatest.FlatSpec
 import akka.testkit.TestKit
 import com.typesafe.config.ConfigFactory
 import akka.actor.{ActorRef, Props, ActorSystem}
+import spray.http.HttpHeaders.Accept
 import spray.routing.{Directives, Route}
 import spray.http._
 import spray.can.Http
@@ -15,8 +16,6 @@ import akka.pattern.ask
 import akka.util.Timeout
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.time.{Seconds, Span}
-import spray.http.HttpRequest
-import spray.http.HttpResponse
 
 object FailureRoutes extends Directives {
 
@@ -34,13 +33,13 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
   behavior of "An HTTP Server that handles a request with a 200 response within the request timeout"
 
-  it should "Log Access Once with the Correct Request, Response and Access Times" in {
+  it should "'Log Access' with a 200 response and an Access Time less than the request timeout" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
       routeOrDelayedResponse = Right(DelayedResponse(500))) { testKit =>
       import testKit._
 
-      whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
+      whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
         assert(s.entity.asString(HttpCharsets.`UTF-8`) === DelayedResponse.DEFAULT_RESPONSE)
       }
 
@@ -57,14 +56,14 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   behavior of "An HTTP Server with a route that throws an Exception within the request timeout"
 
 
-  it should "Log Access Once with the Correct Request, Response and Access Times" in {
+  it should "'Log Access' with a 500 response and an Access Time less than the request timeout" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
       routeOrDelayedResponse = Left(FailureRoutes.exceptionRoute)) { testKit =>
       import testKit._
 
 
-      whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
+      whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
         assert(s.status.intValue == 500)
       }
 
@@ -80,14 +79,14 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
   behavior of "An HTTP Server with a route that completes with a failure within the request timeout"
 
-  it should "Log Access Once with the Correct Request, Response and Access Times" in {
+  it should "'Log Access' with a 500 response and an Access Time less than the request timeout" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
       routeOrDelayedResponse = Left(FailureRoutes.failureRoute)) { testKit =>
       import testKit._
 
 
-      whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
+      whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
         assert(s.status.intValue == 500)
       }
 
@@ -103,13 +102,14 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
   behavior of "An HTTP Server that handles a request with a 200 response outside of the request timeout"
 
-  it should "Log Access Once with the Correct Request, then log Standard Timeout Error Response and Request Timeout time" in {
+  it should "'Log Access' with a 500 response and an Access Time equal to the configured Request Timeout time " +
+    "and then 'Access already logged' with a 200 response and an Access Time more than the Request Timeout time" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 50,
       routeOrDelayedResponse = Right(DelayedResponse(500))) { testKit =>
       import testKit._
 
-      whenReady(makeHttpCall, timeout(Span(2, Seconds))) { s =>
+      whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
         assert(s.status.intValue == 500)
       }
 
@@ -129,6 +129,65 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     }
   }
 
+  behavior of "An HTTP Server that doesn't complete within 100 times the request timeout"
+
+  it should "'Log Access' with a 500 response and an Access Time equal to the configured Request Timeout time " +
+    "and then 'Access already logged' with a 500 response an Access Time more than the Request Timeout time and an " +
+    "appropriate error message" in {
+    aTestLogAccessRoutingActor(
+      requestTimeoutMillis = 10,
+      routeOrDelayedResponse = Right(DelayedResponse(2000))) { testKit =>
+      import testKit._
+
+
+      whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
+        assert(s.status.intValue == 500)
+      }
+
+      expectMsgPF(3 seconds, "Expected normal log access access event with with timeout properties") {
+        case LogEvent(
+        HttpRequest(HttpMethods.GET,URI, _, _, _),
+        HttpResponse(StatusCodes.InternalServerError, _, _, _), 10, LogAccess
+        ) => true
+      }
+
+      expectMsgPF(3 seconds, "Expected access already logged error event") {
+        case LogEvent(
+        HttpRequest(HttpMethods.GET,URI, _, _, _),
+        HttpResponse(StatusCodes.InternalServerError, entity, _, _), time, AccessAlreadyLogged
+        ) if
+          time >= (10 * 100) &&
+          entity.asString.contains("The RequestAccessLogger timed out waiting for the request to complete")
+           => true
+      }
+    }
+  }
+
+
+  behavior of "An HTTP Server that handles a JSON request with a TXT response within the request timeout"
+
+  it should "'Log Access' with a 406 response and an Access Time less than the request timeout" in {
+    aTestLogAccessRoutingActor(
+      requestTimeoutMillis = 4000,
+      routeOrDelayedResponse = Right(DelayedResponse(50))) { testKit =>
+      import testKit._
+
+      whenReady(makeHttpCall(MediaTypes.`application/json`), timeout(Span(2, Seconds))) { s =>
+        withClue(s"Unexpected response status code\nResponse Body Was: '${s.entity.asString}'\n") {
+          assert(s.status.intValue == 406)
+        }
+      }
+
+      expectMsgPF(3 seconds, "Expected normal log access event with with Not Acceptable properties") {
+        case LogEvent(
+        HttpRequest(HttpMethods.GET,URI, _, _, _),
+        HttpResponse(StatusCodes.NotAcceptable, _, _, _), _, LogAccess
+        ) => true
+      }
+
+      expectNoMsg(3 seconds)
+    }
+  }
 
 
   implicit val TIMEOUT: Timeout = 3.second
@@ -138,8 +197,8 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   val URI:Uri = Uri(s"$HOST/$PATH")
 
   sealed trait LogType
-  object LogAccess extends LogType
-  object AccessAlreadyLogged extends LogType
+  case object LogAccess extends LogType
+  case object AccessAlreadyLogged extends LogType
 
 
   case class LogEvent(request: HttpRequest, response: HttpResponse, time: Long, logAccessType: LogType)
@@ -202,10 +261,10 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     }
   }
 
-  def makeHttpCall(implicit system: ActorSystem):Future[HttpResponse] = {
+  def makeHttpCall(mediaType:MediaType = MediaTypes.`text/plain`)(implicit system: ActorSystem):Future[HttpResponse] = {
     import system.dispatcher
     val pipeline: HttpRequest => Future[HttpResponse] =
-      sendReceive
+      addHeader(`Accept`(mediaType)) ~> sendReceive
 
     pipeline(Get(Uri(s"$HOST/$PATH")))
   }
