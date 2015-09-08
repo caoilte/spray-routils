@@ -166,7 +166,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
   behavior of "An HTTP Server that handles a JSON request with a TXT response within the request timeout"
 
-  it should "'Log Access' with a 406 response and an Access Time less than the request timeout" in {
+  it should "'Log Access' for a request with an unacceptable Accept header by making a 406 response with an Access Time less than the request timeout" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
       routeOrDelayedResponse = Right(DelayedResponse(50))) { testKit =>
@@ -213,7 +213,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     }
   }
 
-  
+  // going to have to use 'request-timeout = infinite' - spray-can timeout handling is FUBAR
   def CONFIG(requestTimeout:String = "1 s") =
     s"""
       |spray.can {

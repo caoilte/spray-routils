@@ -1,5 +1,6 @@
 package org.caoilte.spray.routing
 
+import spray.http.{HttpEntity, ContentTypes}
 import spray.routing._
 import akka.actor.{Props, ActorRef, Actor}
 import scala.concurrent._
@@ -26,7 +27,7 @@ class TestLogAccessRoutingActor(val accessLogger: AccessLogger,
         blocking {
           Thread.sleep(thinkingMillis)
         }
-        sender ! responseMessage
+        sender ! HttpEntity(ContentTypes.`text/plain`, responseMessage)
       }
     }
   }
@@ -48,8 +49,8 @@ class TestLogAccessRoutingActor(val accessLogger: AccessLogger,
         routeOrDelayedResponse match {
           case Left(route) => route
           case Right(DelayedResponse(thinkingMillis, _)) => {
-            implicit val TIMEOUT: Timeout = Timeout(thinkingMillis*2, TimeUnit.MILLISECONDS)
-            complete((testAc ? RequestForDelayedResponse).mapTo[String])
+            implicit val TIMEOUT: Timeout = Timeout(thinkingMillis * 2, TimeUnit.MILLISECONDS)
+            complete((testAc ? RequestForDelayedResponse).mapTo[HttpEntity])
           }
         }
       }
