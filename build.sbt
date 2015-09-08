@@ -2,7 +2,7 @@ organization := "org.caoilte"
 
 name := "spray-routils"
 
-scalaVersion := "2.11.1"
+scalaVersion := "2.11.7"
 
 Dependencies.settings
 
@@ -15,7 +15,5 @@ Revolver.settings
 mainClass in Revolver.reStart := Some("org.caoilte.spray.routing.LogAccessRoutingDemo")
 
 fullClasspath in Revolver.reStart <<= fullClasspath in Test
-
-crossScalaVersions := Seq("2.10.4", "2.11.1")
 
 scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8", "-language", "postfixOps")
