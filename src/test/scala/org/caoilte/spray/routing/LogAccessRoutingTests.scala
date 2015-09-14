@@ -130,10 +130,10 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     }
   }
 
-  behavior of "An HTTP Server that doesn't complete within 100 times the request timeout"
+  behavior of "An HTTP Server that doesn't complete within 100 times the request timeout to a TXT request"
 
   it should "'Log Access' with a 500 response and an Access Time equal to the configured Request Timeout time " +
-    "and then 'Access already logged' with a 500 response an Access Time more than the Request Timeout time and an " +
+    "and then 'Access already logged' with a 500 response and Access Time more than the Request Timeout time and an " +
     "appropriate error message" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 10,
@@ -160,6 +160,41 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
           time >= (10 * 100) &&
           entity.asString.contains("The RequestAccessLogger timed out waiting for the request to complete")
            => true
+      }
+    }
+  }
+
+  behavior of "An HTTP Server that doesn't complete within 100 times the request timeout to a JSON request"
+
+  it should "'Log Access' with a 406 response and an Access Time equal to the configured Request Timeout time " +
+    "and then 'Access already logged' with a 500 response and Access Time more than the Request Timeout time and an " +
+    "appropriate error message" in {
+
+    aTestLogAccessRoutingActor(
+      requestTimeoutMillis = 10,
+      httpServiceActorFactory = DelayedResponseServiceActor.factory(DelayedResponse(2000), PATH)) { testKit =>
+      import testKit._
+
+
+      whenReady(makeHttpCall(MediaTypes.`application/json`), timeout(Span(2, Seconds))) { s =>
+        assert(s.status.intValue == 406) // because Spray Server 500 timeout response re-maps to 406
+      }
+
+      expectMsgPF(3 seconds, "Expected normal log access access event with timeout properties") {
+        case LogEvent(
+        HttpRequest(HttpMethods.GET,URI, _, _, _),
+        HttpResponse(StatusCodes.NotAcceptable, _, _, _), 10, LogAccess
+        ) => true
+      }
+
+      expectMsgPF(3 seconds, "Expected access already logged error event") {
+        case LogEvent(
+        HttpRequest(HttpMethods.GET,URI, _, _, _),
+        HttpResponse(StatusCodes.InternalServerError, entity, _, _), time, AccessAlreadyLogged
+        ) if
+        time >= (10 * 100) &&
+          entity.asString.contains("The RequestAccessLogger timed out waiting for the request to complete")
+        => true
       }
     }
   }
