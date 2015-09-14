@@ -69,7 +69,15 @@ object LogAccessRoutingDemo extends App {
   val exceptionRouteOrDemoArgs = demoArgs()
   val (
     requestTimeoutInMillis, responseDelayInMillis) = exceptionRouteOrDemoArgs.right.getOrElse(1000L, 1000L)
-  val exceptionRouteOrDelayedResponse:Either[Route,DelayedResponse] = exceptionRouteOrDemoArgs.right.map(_ => DelayedResponse(responseDelayInMillis, "hello"))
+
+  val serviceActorProps = {
+    exceptionRouteOrDemoArgs.fold( route => {
+      RouteServiceActor.apply(new DemoAccessLogger, route, "hello")
+    }, tupleArgs => {
+      DelayedResponseServiceActor.apply(new DemoAccessLogger, DelayedResponse(tupleArgs._2), "hello")
+    })
+  }
+
   val config = ConfigFactory.parseString(
     s"""
       |spray.can {
@@ -85,9 +93,7 @@ object LogAccessRoutingDemo extends App {
   implicit val system = ActorSystem("log-access-routing-demo", config)
 
 
-  val serviceActor = system.actorOf(Props(
-    new TestLogAccessRoutingActor(new DemoAccessLogger, exceptionRouteOrDelayedResponse, "hello"))
-  )
+  val serviceActor = system.actorOf(serviceActorProps)
 
 
   val serverStartedFuture = IO(Http).ask(Http.Bind(serviceActor, "localhost", 8085)).flatMap {

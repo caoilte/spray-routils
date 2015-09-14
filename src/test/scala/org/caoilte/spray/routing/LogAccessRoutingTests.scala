@@ -1,5 +1,6 @@
 package org.caoilte.spray.routing
 
+import org.caoilte.spray.routing.TestAccessLogger.{AccessAlreadyLogged, LogAccess, LogEvent}
 import org.scalatest.FlatSpec
 import akka.testkit.TestKit
 import com.typesafe.config.ConfigFactory
@@ -36,7 +37,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   it should "'Log Access' with a 200 response and an Access Time less than the request timeout" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
-      routeOrDelayedResponse = Right(DelayedResponse(500))) { testKit =>
+      httpServiceActorFactory = DelayedResponseServiceActor.factory(DelayedResponse(500), PATH)) { testKit =>
       import testKit._
 
       whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
@@ -59,7 +60,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   it should "'Log Access' with a 500 response and an Access Time less than the request timeout" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
-      routeOrDelayedResponse = Left(FailureRoutes.exceptionRoute)) { testKit =>
+      httpServiceActorFactory = RouteServiceActor.factory(FailureRoutes.exceptionRoute, PATH)) { testKit =>
       import testKit._
 
 
@@ -82,7 +83,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   it should "'Log Access' with a 500 response and an Access Time less than the request timeout" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
-      routeOrDelayedResponse = Left(FailureRoutes.failureRoute)) { testKit =>
+      httpServiceActorFactory = RouteServiceActor.factory(FailureRoutes.failureRoute, PATH)) { testKit =>
       import testKit._
 
 
@@ -106,7 +107,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     "and then 'Access already logged' with a 200 response and an Access Time more than the Request Timeout time" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 50,
-      routeOrDelayedResponse = Right(DelayedResponse(500))) { testKit =>
+      httpServiceActorFactory = DelayedResponseServiceActor.factory(DelayedResponse(500), PATH)) { testKit =>
       import testKit._
 
       whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
@@ -136,7 +137,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     "appropriate error message" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 10,
-      routeOrDelayedResponse = Right(DelayedResponse(2000))) { testKit =>
+      httpServiceActorFactory = DelayedResponseServiceActor.factory(DelayedResponse(2000), PATH)) { testKit =>
       import testKit._
 
 
@@ -169,7 +170,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   it should "'Log Access' for a request with an unacceptable Accept header by making a 406 response with an Access Time less than the request timeout" in {
     aTestLogAccessRoutingActor(
       requestTimeoutMillis = 4000,
-      routeOrDelayedResponse = Right(DelayedResponse(50))) { testKit =>
+      httpServiceActorFactory = DelayedResponseServiceActor.factory(DelayedResponse(50), PATH)) { testKit =>
       import testKit._
 
       whenReady(makeHttpCall(MediaTypes.`application/json`), timeout(Span(2, Seconds))) { s =>
@@ -196,22 +197,8 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
   val PATH = "test"
   val URI:Uri = Uri(s"$HOST/$PATH")
 
-  sealed trait LogType
-  case object LogAccess extends LogType
-  case object AccessAlreadyLogged extends LogType
 
 
-  case class LogEvent(request: HttpRequest, response: HttpResponse, time: Long, logAccessType: LogType)
-
-  class TestAccessLogger(listener:ActorRef) extends AccessLogger {
-    override def logAccess(request: HttpRequest, response: HttpResponse, time: Long) = {
-      listener ! LogEvent(request, response, time, LogAccess)
-    }
-
-    override def accessAlreadyLogged(request: HttpRequest, response: HttpResponse, time: Long) = {
-      listener ! LogEvent(request, response, time, AccessAlreadyLogged)
-    }
-  }
 
   // going to have to use 'request-timeout = infinite' - spray-can timeout handling is FUBAR
   def CONFIG(requestTimeout:String = "1 s") =
@@ -234,7 +221,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
 
   def aTestLogAccessRoutingActor(
                                   requestTimeoutMillis:Long,
-                                  routeOrDelayedResponse:Either[Route,DelayedResponse]
+                                  httpServiceActorFactory: TestKit => Props
                                   )
                                 (callback: TestKit => Unit) {
     val config = ConfigFactory.parseString(CONFIG(s"$requestTimeoutMillis ms"))
@@ -242,10 +229,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures {
     val testKit = new TestKit(system)
 
     try {
-      val accessLogger = new TestAccessLogger(testKit.testActor)
-      val serviceActor = system.actorOf(Props(
-        new TestLogAccessRoutingActor(accessLogger, routeOrDelayedResponse, PATH))
-      )
+      val serviceActor = system.actorOf(httpServiceActorFactory(testKit))
 
       val sprayServerStartResult = IO(Http).ask(Http.Bind(serviceActor, "localhost", PORT)).flatMap {
         case b: Http.Bound ⇒ Future.successful(b)
