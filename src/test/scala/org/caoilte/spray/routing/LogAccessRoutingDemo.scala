@@ -82,7 +82,8 @@ object LogAccessRoutingDemo extends App {
     s"""
       |spray.can {
       |  server {
-      |    request-timeout = $requestTimeoutInMillis ms
+      |    routils-request-timeout = $requestTimeoutInMillis ms
+      |    request-timeout = infinite
       |    idle-timeout = 100 s
       |    registration-timeout = 100 s
       |  }
@@ -105,7 +106,7 @@ object LogAccessRoutingDemo extends App {
         "Binding failed. Switch on DEBUG-level logging for `akka.io.TcpListener` to log the cause."))
   }(system.dispatcher)
 
-  Await.result(serverStartedFuture, 1 second)
+  Await.result(serverStartedFuture, 2 second)
   println("LogAccessRoutingDemo started. Try it out on http://localhost:8085/hello")
 
 }

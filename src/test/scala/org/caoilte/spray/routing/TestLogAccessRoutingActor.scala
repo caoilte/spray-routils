@@ -36,8 +36,8 @@ case object DelayedResponse {
 case class DelayedResponse(thinkingMillis: Long, responseMessage:String = DelayedResponse.DEFAULT_RESPONSE)
 
 object DelayedResponseServiceActor {
-  def factory(delayedResponse: DelayedResponse, path:String): (TestKit => Props) = testKit => {
-    apply(new TestAccessLogger(testKit.testActor), delayedResponse, path)
+  def factory(delayedResponse: DelayedResponse, path:String): (ActorRef => Props) = actorRef => {
+    apply(new TestAccessLogger(actorRef), delayedResponse, path)
   }
   def apply(accessLogger: AccessLogger, delayedResponse: DelayedResponse, path:String):Props = {
     Props(new DelayedResponseServiceActor(accessLogger, delayedResponse, path))
@@ -85,8 +85,8 @@ class DelayedResponseServiceActor(val accessLogger: AccessLogger, delayedRespons
 
 
 object RouteServiceActor {
-  def factory(route: Route, path:String): (TestKit => Props) = testKit => {
-    apply(new TestAccessLogger(testKit.testActor), route, path)
+  def factory(route: Route, path:String): (ActorRef => Props) = actorRef => {
+    apply(new TestAccessLogger(actorRef), route, path)
   }
   def apply(accessLogger: AccessLogger, route: Route, path:String):Props = {
     Props(new RouteServiceActor(accessLogger, route, path))
