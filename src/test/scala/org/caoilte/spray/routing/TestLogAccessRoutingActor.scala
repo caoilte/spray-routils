@@ -2,9 +2,10 @@ package org.caoilte.spray.routing
 
 import akka.testkit.TestKit
 import org.caoilte.spray.routing.TestAccessLogger.TestAccessLogger
-import spray.http.{HttpResponse, HttpRequest, HttpEntity, ContentTypes}
+import spray.http.{ContentTypes, HttpEntity, HttpRequest, HttpResponse}
 import spray.routing._
-import akka.actor.{Props, ActorRef, Actor}
+import akka.actor.{Actor, ActorRef, ActorSystem, Props}
+
 import scala.concurrent._
 import akka.pattern.ask
 import akka.util.Timeout
@@ -83,23 +84,35 @@ class DelayedResponseServiceActor(val accessLogger: AccessLogger, delayedRespons
   override def receive = runRoute(routes)
 }
 
+trait RouteCreator {
+  def apply(system:ActorSystem):Route
+}
 
 object RouteServiceActor {
   def factory(route: Route, path:String): (ActorRef => Props) = actorRef => {
     apply(new TestAccessLogger(actorRef), route, path)
   }
+  def factory(routeCreator: RouteCreator, path:String): (ActorRef => Props) = actorRef => {
+    apply(new TestAccessLogger(actorRef), routeCreator, path)
+  }
   def apply(accessLogger: AccessLogger, route: Route, path:String):Props = {
-    Props(new RouteServiceActor(accessLogger, route, path))
+    val routeCreator:RouteCreator = new RouteCreator {
+      override def apply(system: ActorSystem): Route = route
+    }
+    Props(new RouteServiceActor(accessLogger, routeCreator, path))
+  }
+  def apply(accessLogger: AccessLogger, routeCreator: RouteCreator, path:String):Props = {
+    Props(new RouteServiceActor(accessLogger, routeCreator, path))
   }
 }
 
-class RouteServiceActor(val accessLogger: AccessLogger, route: Route, path:String)
+class RouteServiceActor(val accessLogger: AccessLogger, routeCreator: RouteCreator, path:String)
   extends HttpServiceActor with LogAccessRoutingActor {
 
   val routes:Route = {
     path(path) {
       get {
-        route
+        routeCreator(context.system)
       }
     }
   }

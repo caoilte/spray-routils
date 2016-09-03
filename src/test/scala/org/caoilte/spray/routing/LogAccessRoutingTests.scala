@@ -1,18 +1,19 @@
 package org.caoilte.spray.routing
 
 import org.caoilte.spray.routing.TestAccessLogger.{LogAccess, LogEvent}
-import org.scalatest.{GivenWhenThen, FlatSpec}
+import org.scalatest.{FlatSpec, GivenWhenThen}
 import akka.testkit.TestKit
 import com.typesafe.config.ConfigFactory
-import akka.actor.{ActorRef, Props, ActorSystem}
+import akka.actor.{ActorRef, ActorSystem, Props}
 import spray.http.HttpHeaders.Accept
-import spray.routing.Directives
+import spray.routing.{Directives, Route}
 import spray.http._
 import spray.can.Http
+
 import scala.concurrent._
 import scala.concurrent.duration._
 import spray.client.pipelining._
-import akka.io.{Tcp, IO}
+import akka.io.{IO, Tcp}
 import akka.pattern.ask
 import akka.util.Timeout
 import org.scalatest.concurrent.ScalaFutures
@@ -28,6 +29,17 @@ object FailureRoutes extends Directives {
   }
   val failureRoute = {
     failWith(new RequestProcessingException(StatusCodes.InternalServerError,"Test Exception"))
+  }
+}
+
+object SuccessRoutes extends Directives {
+  val chunkedResponseRoute:RouteCreator = new RouteCreator {
+    override def apply(system: ActorSystem): Route = {
+      implicit val actorRefFac = system
+      parameterMap { params =>
+        Directives.getFromResource("veryLargeFile.txt")
+      }
+    }
   }
 }
 
@@ -50,6 +62,28 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures with GivenWhenThe
         HttpRequest(HttpMethods.GET,URI, _, _, _),
         HttpResponse(StatusCodes.OK, _, _, _), time, LogAccess
         ) if time >= 500 && time <= 4000 => true
+      }
+    }
+  }
+
+  behavior of "An HTTP Server that handles a request with a 200 Chunked Response within the request timeout"
+
+  it should "'Log Access' with a 200 response and an Access Time less than the request timeout" in {
+
+    aTestLogAccessRoutingActor(
+      requestTimeoutMillis = 4000,
+      httpServiceActorFactory = RouteServiceActor.factory(SuccessRoutes.chunkedResponseRoute, PATH)) { testKit =>
+      import testKit._
+
+      whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
+        assert(s.entity.asString(HttpCharsets.`UTF-8`) contains "Bootstrap v3.3.7")
+      }
+
+      expectMsgPF(3 seconds, "Expected normal log access event with response delayed properties") {
+        case LogEvent(
+        HttpRequest(HttpMethods.GET,URI, _, _, _),
+        HttpResponse(StatusCodes.OK, _, _, _), time, LogAccess
+        ) if time <= 4000 => true
       }
     }
   }

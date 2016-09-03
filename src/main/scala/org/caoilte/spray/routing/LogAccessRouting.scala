@@ -55,6 +55,18 @@ class RequestAccessLogger(ctx: RequestContext, accessLogger: AccessLogger,
       accessLogger.logAccess(request, response, timeStampCalculator(Unit))
       forwardMsgAndStop(response)
     }
+    case confirmed:Confirmed => {
+      confirmed.messagePart match {
+        case chunk:ChunkedResponseStart => {
+          cancellable.cancel()
+          accessLogger.logAccess(request, chunk.response, timeStampCalculator(Unit))
+          forwardMsgAndStop(chunk.response)
+        }
+        case other => {
+          responder forward other
+        }
+      }
+    }
     case other => {
       responder forward other
     }
