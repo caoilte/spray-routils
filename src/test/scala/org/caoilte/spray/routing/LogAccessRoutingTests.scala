@@ -76,7 +76,7 @@ class LogAccessRoutingTests extends FlatSpec with ScalaFutures with GivenWhenThe
       import testKit._
 
       whenReady(makeHttpCall(), timeout(Span(2, Seconds))) { s =>
-        assert(s.entity.asString(HttpCharsets.`UTF-8`) contains "Bootstrap v3.3.7")
+        assert(s.entity.asString(HttpCharsets.`UTF-8`) === scala.io.Source.fromURL(testKit.getClass().getResource("/veryLargeFile.txt")).mkString)
       }
 
       expectMsgPF(3 seconds, "Expected normal log access event with response delayed properties") {
