@@ -2,7 +2,7 @@ organization := "org.caoilte"
 
 name := "spray-routils"
 
-scalaVersion := "2.11.7"
+scalaVersion := "2.11.8"
 
 Dependencies.settings
 
@@ -17,3 +17,7 @@ mainClass in Revolver.reStart := Some("org.caoilte.spray.routing.LogAccessRoutin
 fullClasspath in Revolver.reStart <<= fullClasspath in Test
 
 scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf8", "-language", "postfixOps")
+
+publishTo := Some("Sonatype Snapshots Nexus" at "https://itvrepos.artifactoryonline.com/itvrepos/cps-libs")
+
+ivyScala := ivyScala.value map { _.copy(overrideScalaVersion = true) }

@@ -4,9 +4,9 @@ import Keys._
 object Dependencies {
 
   object V {
-    val scalaTest = "2.2.3"
-    val spray = "1.3.2"
-    val akka = "2.3.11"
+    val scalaTest = "3.0.0"
+    val spray = "1.3.3"
+    val akka = "2.3.15"
   }
 
   object C {
