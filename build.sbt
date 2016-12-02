@@ -6,8 +6,6 @@ scalaVersion := "2.11.8"
 
 Dependencies.settings
 
-releaseSettings
-
 Publishing.settings
 
 Revolver.settings
