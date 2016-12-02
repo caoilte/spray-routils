@@ -20,4 +20,3 @@ scalacOptions := Seq("-unchecked", "-deprecation", "-feature", "-encoding", "utf
 
 publishTo := Some("Sonatype Snapshots Nexus" at "https://itvrepos.artifactoryonline.com/itvrepos/cps-libs")
 
-ivyScala := ivyScala.value map { _.copy(overrideScalaVersion = true) }
