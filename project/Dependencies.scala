@@ -5,13 +5,13 @@ object Dependencies {
 
   object V {
     val scalaTest = "3.0.0"
-    val spray = "1.3.3"
-    val akka = "2.3.15"
+    val spray = "1.3.4"
+    val akka = "2.3.9"
   }
 
   object C {
     val sprayCan = "io.spray" %% "spray-can" % V.spray
-    val sprayRouting = "io.spray" %% "spray-routing" % V.spray
+    val sprayRouting = "io.spray" %% "spray-routing-shapeless23" % V.spray
     val akka = "com.typesafe.akka" %% "akka-actor" % V.akka
   }
 
